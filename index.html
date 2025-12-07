@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Motor House OS v30</title>
+
+<!--
+Suggested Firestore security rules (apply in Firebase console, not here):
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+-->
+
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+
+<!-- ICONS -->
+<script src="https://unpkg.com/lucide@latest"></script>
+
+<!-- FIREBASE -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<!-- PDF libs (kept for potential future use) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<!-- Chart.js for analytics visualisations -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<!-- Progressive Web App manifest -->
+<link rel="manifest" href="manifest.json">
+
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter'],
+        tech: ['Rajdhani']
+      },
+      colors: {
+        cyber: '#14b8a6',
+        panel: '#1e293b',
+        void: '#020617'
+      }
+    }
+  }
+}
+</script>
+
+<style>
+body {
+  background-color: #020617;
+  color: white;
+  overflow-x: hidden;
+}
+
+.cyber-grid {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
+  z-index: -2;
+  opacity: 0.5;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Inputs */
+input, select, textarea {
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: white;
+  padding: 10px;
+  border-radius: 8px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+input:focus {
+  border-color: #14b8a6;
+}
+
+/* Buttons */
+.btn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: bold;
+  font-family: 'Rajdhani';
+  letter-spacing: 1px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-primary {
+  background: rgba(20, 184, 166, 0.15);
+  color: #14b8a6;
+  border: 1px solid #14b8a6;
+}
+
+.btn-primary:hover {
+  background: rgba(20, 184, 166, 0.25);
+  box-shadow: 0 0 15px rgba(20, 184, 166, 0.2);
+}
+
+.btn-secondary {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid #3b82f6;
+}
+
+.btn-secondary:hover {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.btn-danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid #ef4444;
+}
+
+.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+.btn-warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid #f59e0b;
+}
+
+/* VHC Options */
+.vhc-opt {
+  flex: 1;
+  text-align: center;
+  padding: 6px;
+  font-size: 10px;
+  font-weight: bold;
+  cursor: pointer;
+  border: 1px solid #334155;
+  opacity: 0.5;
+  border-radius: 4px;
+  transition: 0.2s;
+}
+
+.vhc-opt.green.active {
+  background: #064e3b;
+  color: #34d399;
+  border-color: #34d399;
+  opacity: 1;
+  transform: scale(1.05);
+}
+
+.vhc-opt.amber.active {
+  background: #451a03;
+  color: #fbbf24;
+  border-color: #fbbf24;
+  opacity: 1;
+  transform: scale(1.05);
+}
+
+.vhc-opt.red.active {
+  background: #450a0a;
+  color: #f87171;
+  border-color: #f87171;
+  opacity: 1;
+  transform: scale(1.05);
+}
+
+/* Navigation */
+.nav-item {
+  padding: 14px;
+  cursor: pointer;
+  color: #94a3b8;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: 0.2s;
+  border-radius: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.nav-item:hover {
+  background: #1e293b;
+  color: white;
+}
+
+.nav-item.active {
+  border-left: 4px solid #14b8a6;
+  background: rgba(20, 184, 166, 0.1);
+  color: #14b8a6;
+}
+
+/* Sidebar Animations */
+#sidebar {
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  width: 16rem;
+}
+
+#sidebar.collapsed {
+  width: 5rem;
+}
+
+#sidebar.collapsed .nav-text,
+#sidebar.collapsed .logo-text,
+#sidebar.collapsed #status,
+#sidebar.collapsed #offline-btn-text {
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  display: none;
+}
+
+#sidebar.collapsed .p-6 {
+  padding: 1.5rem 0.5rem;
+  justify-content: center;
+}
+
+#sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 12px 0;
+}
+
+#sidebar.collapsed .nav-item i {
+  margin: 0;
+}
+
+#toggle-icon {
+  transition: transform 0.3s;
+}
+
+#sidebar.collapsed #toggle-icon {
+  transform: rotate(180deg);
+}
+
+/* PRINT AREA (hidden on screen) */
+#print-area {
+  display: none;
+}
+
+/* Professional A4 print layout (used by invoices & VHC) */
+.print-doc {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 11pt;
+  color: #000;
+  line-height: 1.35;
+  width: 190mm;
+  margin: 0 auto;
+  box-sizing: border-box;
+  background: #ffffff;
+}
+
+.print-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid #d1d5db;
+  padding-bottom: 10px;
+  margin-bottom: 18px;
+  page-break-inside: avoid;
+}
+
+.print-company-name {
+  font-size: 16pt;
+  font-weight: 700;
+}
+
+.print-company-line {
+  font-size: 9pt;
+}
+
+.print-doc-meta {
+  text-align: right;
+  font-size: 10pt;
+  min-width: 150px;
+}
+
+.print-doc-title {
+  font-size: 18pt;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.print-chip {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  font-size: 8pt;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.print-chip--paid {
+  background: #dcfce7;
+  border-color: #4ade80;
+  color: #166534;
+}
+
+.print-chip--unpaid {
+  background: #fee2e2;
+  border-color: #f97373;
+  color: #991b1b;
+}
+
+.print-chip--overdue {
+  background: #fef3c7;
+  border-color: #facc15;
+  color: #92400e;
+}
+
+.print-doc-meta-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
+.print-section {
+  margin-bottom: 14px;
+  page-break-inside: avoid;
+}
+
+.print-section--address {
+  display: flex;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.print-two-col {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.print-section-label {
+  font-size: 8.5pt;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b7280;
+  margin-bottom: 3px;
+}
+
+.print-section-content {
+  font-size: 10pt;
+  white-space: pre-line;
+}
+
+.print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10pt;
+  page-break-inside: auto;
+  table-layout: fixed;
+}
+
+.print-table th,
+.print-table td {
+  border: 1px solid #d1d5db;
+  padding: 6px 4px;
+  vertical-align: top;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.print-table th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+
+.print-table tr {
+  page-break-inside: avoid;
+  page-break-after: auto;
+}
+
+.print-table--inv th:nth-child(2),
+.print-table--inv td:nth-child(2) {
+  text-align: center;
+  width: 52px;
+}
+
+.print-table--inv th:nth-child(3),
+.print-table--inv td:nth-child(3),
+.print-table--inv th:nth-child(4),
+.print-table--inv td:nth-child(4) {
+  text-align: right;
+  width: 80px;
+  white-space: nowrap;
+}
+
+.print-table--vhc th:nth-child(2),
+.print-table--vhc td:nth-child(2) {
+  text-align: center;
+  width: 70px;
+  white-space: nowrap;
+}
+
+.print-totals {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  page-break-inside: avoid;
+}
+
+.print-totals-box {
+  border: 1px solid #d1d5db;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: #f9fafb;
+  min-width: 220px;
+}
+
+.print-totals-table {
+  border-collapse: collapse;
+  font-size: 10pt;
+  width: 100%;
+}
+
+.print-totals-table td {
+  padding: 2px 0;
+}
+
+.print-totals-label {
+  text-align: right;
+  color: #4b5563;
+  padding-right: 10px;
+}
+
+.print-totals-value {
+  text-align: right;
+  min-width: 80px;
+  white-space: nowrap;
+}
+
+.print-footer {
+  margin-top: 22px;
+  font-size: 9pt;
+  text-align: center;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 8px;
+  page-break-inside: avoid;
+  color: #4b5563;
+}
+
+.print-status-ok {
+  background: #e2f4e8;
+}
+
+.print-status-advise {
+  background: #fff4d6;
+}
+
+.print-status-fail {
+  background: #ffe0e0;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body {
+    margin: 0;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  #app-layout,
+  #modal-overlay,
+  #loan-modal {
+    display: none !Important;
+  }
+
+  #print-area {
+    display: block !important;
+  }
+}
+</style>
+</head>
+
+<body onload="appInit()">
+<div class="cyber-grid"></div>
+
+<div id="app-layout" class="flex h-screen overflow-hidden">
+  <!-- SIDEBAR -->
+  <nav id="sidebar" class="bg-slate-900 border-r border-white/10 flex flex-col no-print z-50 relative shrink-0">
+    <button onclick="toggleSidebar()" class="absolute -right-3 top-8 bg-cyber text-black p-1 rounded-full border border-white shadow-lg hover:scale-110 transition z-50">
+      <i data-lucide="chevron-left" id="toggle-icon" width="14" height="14"></i>
+    </button>
+
+    <div class="p-6 border-b border-white/10 flex items-center gap-3 overflow-hidden">
+      <div class="w-8 h-8 min-w-[2rem] rounded bg-teal-500 flex items-center justify-center font-bold text-white text-lg">M</div>
+      <div class="logo-text transition-opacity duration-200">
+        <h1 class="text-xl font-tech font-bold tracking-widest text-white whitespace-nowrap">
+          MOTOR<span class="text-cyber">HOUSE</span>
+        </h1>
+        <div class="text-[10px] text-slate-500 uppercase tracking-widest mt-1">
+          OS v30
+        </div>
+        <div id="status" class="text-[10px] text-slate-500 mt-2 font-mono flex items-center gap-2 whitespace-nowrap">
+          <span class="w-2 h-2 rounded-full bg-slate-500"></span> LOADING...
+        </div>
+      </div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto py-4 px-2 space-y-1 overflow-x-hidden" id="nav-menu">
+      <!-- Injected via JS -->
+    </div>
+
+    <div class="p-4 border-t border-white/10">
+      <button onclick="nav('settings')" class="w-full flex items-center justify-center gap-2 text-xs text-slate-400 bg-white/5 p-3 rounded hover:text-white font-bold tracking-wider overflow-hidden" title="Settings & Backup">
+        <i data-lucide="settings" width="14"></i>
+        <span id="offline-btn-text" class="whitespace-nowrap">SETTINGS</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="flex-1 flex flex-col relative h-full min-w-0 transition-all duration-300">
+    <header class="h-20 border-b border-white/10 bg-panel/50 backdrop-blur flex justify-between items-center px-8 shrink-0 no-print">
+      <h2 id="view-title" class="text-3xl font-tech font-bold text-white tracking-widest whitespace-nowrap">DASHBOARD</h2>
+      <div id="clock" class="text-xl font-mono font-bold text-white hidden md:block">00:00</div>
+    </header>
+
+    <div id="content" class="flex-1 p-8 overflow-y-auto pb-24 w-full">
+      <!-- DYNAMIC CONTENT -->
+    </div>
+  </main>
+</div>
+
+<!-- MODALS -->
+<div id="modal-overlay" class="fixed inset-0 bg-black/90 z-[60] hidden flex items-center justify-center p-4" onclick="if(event.target === this) closeModal()">
+  <div id="modal-box" class="bg-panel border border-white/20 w-full max-w-2xl rounded-2xl shadow-2xl p-6 relative max-h-[90vh] overflow-y-auto">
+    <button onclick="closeModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white z-50 p-2">
+      <i data-lucide="x"></i>
+    </button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<!-- LOAN MODAL -->
+<div id="loan-modal" class="fixed inset-0 bg-black/90 z-[70] hidden flex items-center justify-center p-4">
+  <div class="bg-panel border border-white/20 w-full max-w-md rounded-2xl shadow-2xl p-6 relative">
+    <h2 class="text-xl font-bold text-white mb-4 font-tech tracking-wider">COURTESY LOAN</h2>
+    <div class="space-y-4">
+      <input id="loan_customer" placeholder="Customer Name" class="w-full bg-black/50 border border-white/10 rounded p-2 text-white">
+      <div class="grid grid-cols-2 gap-2">
+        <div class="flex flex-col gap-1">
+          <label class="text-[10px] text-cyber font-bold">DATE OUT</label>
+          <input id="loan_date" type="date" class="w-full bg-black/50 border border-white/10 rounded p-2 text-white">
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-[10px] text-cyber font-bold">TIME OUT</label>
+          <input id="loan_time" type="time" class="w-full bg-black/50 border border-white/10 rounded p-2 text-white">
+        </div>
+      </div>
+      <div class="flex gap-2 mt-4">
+        <button onclick="confirmLoan()" class="btn btn-primary w-full">CONFIRM LOAN</button>
+        <button onclick="document.getElementById('loan-modal').classList.add('hidden')" class="btn btn-danger w-full">CANCEL</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- COMMAND PALETTE OVERLAY -->
+<div id="cmd-palette" class="hidden fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-start justify-center p-4 no-print">
+  <div class="bg-panel border border-white/10 w-full max-w-md rounded-xl shadow-2xl p-4 mt-20">
+    <input id="cmd-input" type="text" placeholder="Type a command... (e.g., Fleet, Invoice)" class="w-full p-3 mb-2 bg-black/40 border border-white/10 rounded text-white text-sm"/>
+    <div id="cmd-results" class="space-y-1 max-h-60 overflow-y-auto"></div>
+    <p class="text-xs text-slate-500 mt-2">Press Esc to close</p>
+  </div>
+</div>
+
+<!-- PRINT AREA -->
+<div id="print-area"></div>
+
+<!-- App logic -->
+<script src="motorhouse-os-v30.js"></script>
+
+<!-- Register service worker for PWA support -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('service-worker.js').catch(err => {
+        console.error('Service worker registration failed:', err);
+      });
+    });
+  }
+</script>
+</body>
+</html>
