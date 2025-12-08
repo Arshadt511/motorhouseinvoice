@@ -2074,14 +2074,16 @@ function renderCharts() {
 
 /* ------------------------------------------------------------------ */
 // --- Fleet enhancements: loan history + workshop booking ---
+//
+// This block fixes DATA access (no window.DATA), keeps CSV import working,
+// records loan history with duration on return, and lets you book fleet
+// vehicles straight into the workshop.
 
 // Override returnCar to record loan history with duration
 window.returnCar = function (id) {
   if (!confirm("Confirm vehicle return?")) return;
 
-  const car = (window.DATA && Array.isArray(window.DATA.fleet))
-    ? window.DATA.fleet.find(c => c.id === id)
-    : null;
+  const car = DATA.fleet.find(c => c.id === id);
   if (!car) return;
 
   const now = new Date();
@@ -2095,73 +2097,82 @@ window.returnCar = function (id) {
 
     const days = Math.floor(diffMinutes / (60 * 24));
     const hours = Math.floor((diffMinutes % (60 * 24)) / 60);
-    const mins = diffMinutes % 60;
+    const minutes = diffMinutes % 60;
 
-    const parts = [];
-    if (days) parts.push(`${days}d`);
-    if (hours) parts.push(`${hours}h`);
-    if (mins && !days) parts.push(`${mins}m`);
-    const durationLabel = parts.join(" ") || "0m";
+    const durationParts = [];
+    if (days) durationParts.push(`${days} day${days !== 1 ? "s" : ""}`);
+    if (hours) durationParts.push(`${hours} hr${hours !== 1 ? "s" : ""}`);
+    if (minutes || (!days && !hours)) {
+      durationParts.push(`${minutes} min${minutes !== 1 ? "s" : ""}`);
+    }
 
     historyEntry = {
       customer: car.loanDetails.customer || "",
       dateOut: car.loanDetails.dateOut,
       timeOut: car.loanDetails.timeOut,
-      dateIn: now.toISOString().split("T")[0],
-      timeIn: now.toTimeString().slice(0, 5), // HH:MM
+      dateIn: now.toISOString().slice(0, 10),
+      timeIn: now.toTimeString().slice(0, 5),
       durationMinutes: diffMinutes,
-      durationLabel
+      durationLabel: durationParts.join(" ")
     };
   }
 
-  const loanHistory = Array.isArray(car.loanHistory) ? [...car.loanHistory] : [];
-  if (historyEntry) loanHistory.push(historyEntry);
+  const loanHistory = Array.isArray(car.loanHistory) ? car.loanHistory.slice() : [];
+  if (historyEntry) {
+    loanHistory.unshift(historyEntry);
+  }
 
   const updatedCar = {
     ...car,
     status: "Available",
     loanDetails: null,
-    loanHistory
+    loanHistory,
+    updatedAt: new Date().toISOString()
   };
 
-  if (typeof saveData === "function") {
-    saveData("fleet", updatedCar);
-  }
+  saveData("fleet", updatedCar);
 };
+
+// Helper: format the last loan line for display
+function formatLastLoanLine(car) {
+  if (!Array.isArray(car.loanHistory) || car.loanHistory.length === 0) return "";
+  const last = car.loanHistory[0];
+  if (!last.dateIn || !last.timeIn) return "";
+
+  const label = last.durationLabel || "";
+  const returnedOn = `${last.dateIn} ${last.timeIn}`;
+  return `Returned ${returnedOn}${label ? " • " + label : ""}`;
+}
 
 // Override renderFleetGrid to show last loan info and add a booking button
 function renderFleetGrid(search = "") {
   const list = document.getElementById("fleet-list");
   if (!list) return;
-  const s = (search || "").toLowerCase();
 
-  const items = (window.DATA && Array.isArray(window.DATA.fleet))
-    ? window.DATA.fleet.filter(c =>
-        (c.make + " " + (c.model || "")).toLowerCase().includes(s) ||
-        (c.vrm || "").includes((search || "").toUpperCase())
-      )
-    : [];
+  const term = (search || "").toLowerCase();
+
+  const items = DATA.fleet.filter(c =>
+    (c.make + " " + (c.model || "")).toLowerCase().includes(term) ||
+    (c.vrm || "").includes((search || "").toUpperCase())
+  );
 
   list.innerHTML = items.map(c => {
-    const statusBadge = c.status === "On Loan"
+    const isOnLoan = c.status === "On Loan";
+
+    const statusBadge = isOnLoan
       ? `<div class="bg-red-500/10 text-red-400 border border-red-500/20 p-2 rounded text-xs text-center font-bold mb-2">
-           ON LOAN: ${c.loanDetails?.customer || ""}
+           ON LOAN${c.loanDetails && c.loanDetails.customer ? ": " + c.loanDetails.customer : ""}
          </div>`
       : `<div class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 p-2 rounded text-xs text-center font-bold mb-2">
            AVAILABLE
          </div>`;
 
-    let lastLoanHtml = "";
-    if (Array.isArray(c.loanHistory) && c.loanHistory.length) {
-      const last = c.loanHistory[c.loanHistory.length - 1];
-      lastLoanHtml = `
-        <div class="text-[10px] text-slate-400 mb-2">
-          Last loan: ${last.customer || "N/A"} •
-          ${last.dateOut} ${last.timeOut || ""} → ${last.dateIn} ${last.timeIn || ""} 
-          (${last.durationLabel || ""})
-        </div>
-      `;
-    }
+    const lastLoanLine = formatLastLoanLine(c);
+    const lastLoanHtml = lastLoanLine
+      ? `<div class="text-[11px] text-slate-400 mb-2 italic">
+           ${lastLoanLine}
+         </div>`
+      : "";
 
     return `
       <div class="bg-slate-800 border border-white/10 p-5 rounded-xl hover:border-cyber transition relative group">
@@ -2180,14 +2191,14 @@ function renderFleetGrid(search = "") {
         </div>
         ${statusBadge}
         ${lastLoanHtml}
-        <div class="flex gap-2 justify-end">
+        <div class="flex gap-2 justify-end mt-2">
           ${
-            c.status === "On Loan"
+            isOnLoan
               ? `<button onclick="returnCar('${c.id}')" class="btn btn-warning text-xs">RETURN</button>`
               : `<button onclick="openLoanModal('${c.id}')" class="btn btn-secondary text-xs">LOAN</button>`
           }
-          <button onclick="bookFleetVehicle('${c.id}')" class="p-2 bg-amber-500/20 text-amber-400 rounded" title="Book into workshop">
-            <i data-lucide="calendar-clock" width="16"></i>
+          <button onclick="bookFleetVehicle('${c.id}')" class="p-2 bg-purple-500/20 text-purple-400 rounded" title="Book into workshop">
+            <i data-lucide="calendar-plus" width="16"></i>
           </button>
           <button onclick="sellVehicle('${c.id}')" class="p-2 bg-emerald-500/20 text-emerald-400 rounded" title="Invoice">
             <i data-lucide="file-text" width="16"></i>
@@ -2210,91 +2221,86 @@ function renderFleetGrid(search = "") {
 
 // Helper to book a fleet vehicle into the workshop
 window.bookFleetVehicle = function (id) {
-  const car = (window.DATA && Array.isArray(window.DATA.fleet))
-    ? window.DATA.fleet.find(c => c.id === id)
-    : null;
+  const car = DATA.fleet.find(c => c.id === id);
   if (!car) return;
 
   const today = new Date().toISOString().split("T")[0];
 
-  const prefill = {
+  window.bookingPrefill = {
+    fleetId: car.id,
     vrm: car.vrm || "",
-    customer: car.loanDetails?.customer || "",
-    description: "Workshop booking for fleet vehicle",
-    date: today,
-    fleetId: car.id
+    customer: car.loanDetails && car.loanDetails.customer ? car.loanDetails.customer : "",
+    description: `Workshop booking for fleet vehicle ${car.vrm || ""}`,
+    date: today
   };
 
-  if (typeof window.openBookingModal === "function") {
-    window.openBookingModal(null, prefill);
-  }
+  window.openBookingModal(null, window.bookingPrefill);
 };
 
-// Override openBookingModal to accept an optional prefill object
+// Override openBookingModal to support optional prefill (including fleet bookings)
 window.openBookingModal = (id = null, prefill = null) => {
-  window.editingBookingId = id || null;
-  const existing = id && window.DATA && Array.isArray(window.DATA.bookings)
-    ? window.DATA.bookings.find(b => b.id === id)
+  editingBookingId = id || null;
+
+  const existing = id
+    ? DATA.bookings.find(b => b.id === id)
     : null;
 
-  const today = new Date().toISOString().split("T")[0];
+  const usedPrefill = prefill || window.bookingPrefill || null;
 
-  const vrmVal  = existing?.vrm         || prefill?.vrm         || "";
-  const custVal = existing?.customer    || prefill?.customer    || "";
-  const descVal = existing?.description || prefill?.description || "";
-  const dateVal =
-    existing?.date ||
-    prefill?.date ||
-    (existing?.createdAt ? existing.createdAt.split("T")[0] : today);
+  const baseDate =
+    (existing && existing.date) ||
+    (existing && existing.createdAt ? existing.createdAt.split("T")[0] : null) ||
+    (usedPrefill && usedPrefill.date) ||
+    new Date().toISOString().split("T")[0];
 
-  window.bookingPrefill = prefill || null;
-
-  const overlay = document.getElementById("modal-overlay");
-  const modal = document.getElementById("modal-content");
-  if (!overlay || !modal) return;
-
-  overlay.classList.remove("hidden");
-  modal.innerHTML = `
+  document.getElementById("modal-overlay").classList.remove("hidden");
+  document.getElementById("modal-content").innerHTML = `
     <h2 class="text-white font-bold mb-4">${id ? "EDIT BOOKING" : "BOOK IN"}</h2>
-    <input id="b_vrm" placeholder="VRM" class="mb-2 uppercase" value="${vrmVal}">
-    <input id="b_cust" placeholder="Customer" class="mb-2" value="${custVal}">
-    <input id="b_desc" placeholder="Work description" class="mb-2" value="${descVal}">
-    <input id="b_date" type="date" class="mb-2" value="${dateVal}">
+    <input id="b_vrm" placeholder="VRM" class="mb-2 uppercase"
+      value="${(existing && existing.vrm) || (usedPrefill && usedPrefill.vrm) || ""}">
+    <input id="b_cust" placeholder="Customer" class="mb-2"
+      value="${(existing && existing.customer) || (usedPrefill && usedPrefill.customer) || ""}">
+    <input id="b_desc" placeholder="Work description" class="mb-2"
+      value="${(existing && existing.description) || (usedPrefill && usedPrefill.description) || ""}">
+    <input id="b_date" type="date" class="mb-2"
+      value="${baseDate}">
     <button onclick="saveBook()" class="btn btn-primary w-full">SAVE</button>
   `;
 };
 
-// Override saveBook to store optional fleetId link
+// Override saveBook to consume bookingPrefill and keep state in sync
 window.saveBook = () => {
-  const existing = window.editingBookingId && window.DATA && Array.isArray(window.DATA.bookings)
-    ? window.DATA.bookings.find(b => b.id === window.editingBookingId)
+  const existing = editingBookingId
+    ? DATA.bookings.find(b => b.id === editingBookingId)
     : null;
 
-  const dateInput = document.getElementById("b_date");
-  const vrmInput = document.getElementById("b_vrm");
-  const custInput = document.getElementById("b_cust");
-  const descInput = document.getElementById("b_desc");
-
-  const dateValue = (dateInput && dateInput.value) || new Date().toISOString().split("T")[0];
+  const dateValue =
+    document.getElementById("b_date").value ||
+    new Date().toISOString().split("T")[0];
 
   const payload = {
-    id: existing?.id,
-    vrm: (vrmInput?.value || "").toUpperCase(),
-    customer: custInput?.value || "",
-    description: (descInput?.value || existing?.description || ""),
+    id: existing && existing.id,
+    vrm: document.getElementById("b_vrm").value.toUpperCase(),
+    customer: document.getElementById("b_cust").value,
+    description:
+      document.getElementById("b_desc").value ||
+      (existing && existing.description) ||
+      "",
     date: dateValue,
-    status: existing?.status || "Booked",
-    createdAt: existing?.createdAt || new Date().toISOString(),
-    fleetId: existing?.fleetId || window.bookingPrefill?.fleetId || null
+    status: (existing && existing.status) || "Booked",
+    createdAt: (existing && existing.createdAt) || new Date().toISOString(),
+    fleetId:
+      (existing && existing.fleetId) ||
+      (window.bookingPrefill && window.bookingPrefill.fleetId) ||
+      null
   };
 
-  if (typeof saveData === "function") {
-    saveData("bookings", payload);
+  saveData("bookings", payload);
+
+  if (window.bookingPrefill) {
+    window.bookingPrefill = null;
   }
 
-  window.editingBookingId = null;
-  window.bookingPrefill = null;
-
-  const overlay = document.getElementById("modal-overlay");
-  if (overlay) overlay.classList.add("hidden");
+  editingBookingId = null;
+  window.closeModal();
 };
