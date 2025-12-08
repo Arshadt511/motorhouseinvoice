@@ -41,6 +41,50 @@ const VHC_ITEMS = [
   "Wipers", "Suspension", "Exhaust", "Battery"
 ];
 
+
+const JOB_TEMPLATES = [
+  {
+    id: 'full_service',
+    label: 'Full service',
+    items: [
+      { desc: 'Full service labour', qty: 1, price: 120 },
+      { desc: 'Engine oil & filter', qty: 1, price: 40 },
+      { desc: 'Safety check & report', qty: 1, price: 0 }
+    ]
+  },
+  {
+    id: 'interim_service',
+    label: 'Interim service',
+    items: [
+      { desc: 'Interim service labour', qty: 1, price: 80 },
+      { desc: 'Engine oil & filter', qty: 1, price: 35 }
+    ]
+  },
+  {
+    id: 'front_brakes',
+    label: 'Front discs & pads',
+    items: [
+      { desc: 'Front brake discs & pads (fitted)', qty: 1, price: 180 }
+    ]
+  },
+  {
+    id: 'two_tyres',
+    label: '2x tyres (fitted & balanced)',
+    items: [
+      { desc: 'Supply & fit 2x tyres (incl. balance)', qty: 1, price: 150 }
+    ]
+  }
+];
+
+const CATALOGUE_ITEMS = [
+  { code: 'LAB-GEN', desc: 'General labour (per hour)', price: 60, defaultQty: 1 },
+  { code: 'OIL-5W30', desc: 'Engine oil 5W30 (up to 5L)', price: 35, defaultQty: 1 },
+  { code: 'FLT-OIL', desc: 'Oil filter', price: 10, defaultQty: 1 },
+  { code: 'MOT', desc: 'MOT test', price: 54.85, defaultQty: 1 },
+  { code: 'BRAKE-FR', desc: 'Front pads & discs (fitted)', price: 180, defaultQty: 1 }
+];
+
+
 // --- 2. STATE ---
 let db = null;
 let offline = true;
@@ -286,6 +330,13 @@ function renderDashboard(target) {
 
   const loanCars = DATA.fleet.filter(f => f.status === 'On Loan').length;
 
+  const invoicesExQuotes = DATA.invoices.filter(i => i.type !== 'Quote');
+  const unpaidInv = invoicesExQuotes.filter(i => (i.paymentStatus || 'Unpaid') === 'Unpaid');
+  const overdueInv = invoicesExQuotes.filter(i => (i.paymentStatus || 'Unpaid') === 'Overdue');
+
+  const unpaidTotal = unpaidInv.reduce((a, b) => a + (Number(b.total) || 0), 0);
+  const overdueTotal = overdueInv.reduce((a, b) => a + (Number(b.total) || 0), 0);
+
   // Build the summary cards for revenue, jobs, workshop bookings and loaned vehicles.
   let html = `
 <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -306,10 +357,22 @@ function renderDashboard(target) {
     <h3 class="text-3xl font-bold mt-1">${loanCars}</h3>
   </div>
 </div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+  <div class="bg-slate-800 p-6 rounded-xl border border-white/10">
+    <p class="text-xs text-red-400 font-bold tracking-widest">OVERDUE</p>
+    <h3 class="text-3xl font-bold mt-1">£${overdueTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h3>
+    <p class="text-xs text-slate-400 mt-1">${overdueInv.length} invoice(s)</p>
+  </div>
+  <div class="bg-slate-800 p-6 rounded-xl border border-white/10">
+    <p class="text-xs text-amber-400 font-bold tracking-widest">UNPAID</p>
+    <h3 class="text-3xl font-bold mt-1">£${unpaidTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</h3>
+    <p class="text-xs text-slate-400 mt-1">${unpaidInv.length} invoice(s)</p>
+  </div>
+</div>
 `;
   // Append analytics charts containers for revenue and job status. These canvases
   // will be populated by Chart.js in renderCharts().
-  html += `
+html += `
   <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
     <div class="bg-slate-800 p-6 rounded-xl border border-white/10">
       <p class="text-xs text-cyan-400 font-bold tracking-widest">REVENUE ANALYTICS</p>
@@ -948,11 +1011,16 @@ function renderCreateInvoice(target) {
     </div>
 
     <div class="bg-slate-800 p-6 rounded-xl border border-white/10 lg:col-span-2">
-      <div class="flex justify-between mb-4">
+      <div class="flex flex-wrap justify-between gap-2 mb-4">
         <h3 class="font-bold">ITEMS</h3>
-        <button onclick="addItemRow()" class="text-cyber font-bold hover:text-white transition">
-          + ADD ITEM
-        </button>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="openTemplatePicker()" class="btn btn-secondary text-xs">
+            Use job template
+          </button>
+          <button onclick="addItemRow()" class="btn btn-primary text-xs">
+            + Add item
+          </button>
+        </div>
       </div>
       <div id="inv_items_list" class="space-y-2"></div>
       <div class="mt-8 flex justify-end gap-4">
@@ -987,11 +1055,12 @@ window.renderItems = function () {
 <div class="grid grid-cols-12 gap-2 items-center">
   <div class="col-span-6">
     <input
-      oninput="updateRow(${i.id},'desc',this.value)"
+      oninput="handleItemDescInput(${i.id}, this.value)"
       value="${i.desc || i.description || ''}"
       class="bg-black/30 w-full"
       placeholder="Description"
     >
+    <div id="catalogue_suggestions_${i.id}" class="mt-1 space-y-1"></div>
   </div>
   <div class="col-span-2">
     <input
@@ -1247,15 +1316,198 @@ function buildInvoiceDocHtml(inv) {
 }
 
 // LOOKUP / EDIT INVOICE / PREVIEW / PRINT
+
+// --- JOB TEMPLATES & CATALOGUE HELPERS ---
+
+window.openTemplatePicker = () => {
+  const modal = document.getElementById('modal-content');
+  const overlay = document.getElementById('modal-overlay');
+  if (!modal || !overlay) return;
+
+  overlay.classList.remove('hidden');
+
+  modal.innerHTML = `
+<h2 class="text-xl font-bold text-white mb-4">Insert job template</h2>
+<p class="text-xs text-slate-400 mb-3">
+  Choose a template to append its lines to this invoice.
+</p>
+<div class="space-y-2 mb-4">
+  ${JOB_TEMPLATES.map(t => `
+    <button
+      type="button"
+      class="w-full text-left bg-slate-800 hover:bg-slate-700 border border-white/10 rounded-lg p-3 flex justify-between items-center"
+      onclick="applyJobTemplate('${t.id}')"
+    >
+      <span class="font-semibold text-white">${t.label}</span>
+      <span class="text-xs text-slate-400">${t.items.length} line(s)</span>
+    </button>
+  `).join('')}
+</div>
+<button onclick="closeModal()" class="btn btn-danger w-full">Cancel</button>
+`;
+};
+
+window.applyJobTemplate = (templateId) => {
+  const tpl = JOB_TEMPLATES.find(t => t.id === templateId);
+  if (!tpl) return;
+
+  if (!Array.isArray(invoiceItems)) {
+    invoiceItems = [];
+  }
+
+  tpl.items.forEach(item => {
+    invoiceItems.push({
+      id: Date.now() + Math.random(),
+      desc: item.desc,
+      qty: item.qty,
+      price: item.price
+    });
+  });
+
+  if (typeof renderItems === 'function') {
+    renderItems();
+  } else if (window.renderItems) {
+    window.renderItems();
+  }
+};
+
+// --- CATALOGUE AUTOCOMPLETE ---
+
+window.handleItemDescInput = (id, value) => {
+  // keep row description in sync
+  updateRow(id, 'desc', value);
+
+  const containerId = `catalogue_suggestions_${id}`;
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const term = (value || '').toLowerCase().trim();
+  if (!term) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const matches = CATALOGUE_ITEMS.filter(c =>
+    c.desc.toLowerCase().includes(term) ||
+    (c.code && c.code.toLowerCase().includes(term))
+  ).slice(0, 6);
+
+  if (!matches.length) {
+    container.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = matches.map(m => `
+    <button
+      type="button"
+      class="w-full text-left text-xs bg-slate-900 hover:bg-slate-800 border border-white/10 rounded px-2 py-1 flex justify-between items-center"
+      onclick="applyCatalogueItem(${id}, '${m.code}')"
+    >
+      <span>${m.desc}</span>
+      <span class="text-[10px] text-slate-400">${m.code || ''} • £${m.price.toFixed(2)}</span>
+    </button>
+  `).join('');
+};
+
+window.applyCatalogueItem = (id, code) => {
+  const item = CATALOGUE_ITEMS.find(c => c.code === code);
+  if (!item) return;
+
+  const row = invoiceItems.find(x => x.id === id);
+  if (!row) return;
+
+  row.desc = item.desc;
+  row.price = item.price;
+  if (!row.qty || Number(row.qty) === 0) {
+    row.qty = item.defaultQty || 1;
+  }
+
+  if (typeof renderItems === 'function') {
+    renderItems();
+  } else if (window.renderItems) {
+    window.renderItems();
+  }
+};
+
+// --- VRM MEMORY LOOKUP ---
+
+function findLastVehicleRecordByVRM(vrmRaw) {
+  if (!vrmRaw) return null;
+  const cleanVRM = vrmRaw.toUpperCase().replace(/\s/g, '');
+
+  const invoices = Array.isArray(DATA.invoices) ? DATA.invoices.slice() : [];
+  // sort by createdAt descending so we see the most recent record first
+  invoices.sort((a, b) => {
+    const ad = new Date(a.createdAt || a.date || 0).getTime();
+    const bd = new Date(b.createdAt || b.date || 0).getTime();
+    return bd - ad;
+  });
+
+  const match = invoices.find(inv => {
+    const vMain = (inv.vrm || '').toUpperCase().replace(/\s/g, '');
+    const vDetails = (inv.details && inv.details.vrm ? inv.details.vrm : '').toUpperCase().replace(/\s/g, '');
+    return vMain === cleanVRM || vDetails === cleanVRM;
+  });
+
+  if (!match) return null;
+
+  return {
+    vrm: cleanVRM,
+    make: match.make || (match.details && match.details.make) || '',
+    model: match.model || (match.details && match.details.model) || '',
+    mileage: (match.details && match.details.mileage) || match.mileage || '',
+    customer: match.customer || '',
+    email: match.details && match.details.customerEmail,
+    phone: match.details && match.details.customerPhone,
+    address: match.details && match.details.customerAddress
+  };
+}
+
+
 window.lookupVRM = () => {
-  const v = document.getElementById('inv_vrm').value.toUpperCase().replace(/\s/g, '');
-  const f = DATA.fleet.find(c => c.vrm === v);
-  if (f) {
-    document.getElementById('inv_make').value = f.make;
-    document.getElementById('inv_model').value = f.model;
-    document.getElementById('inv_mileage').value = f.mileage;
-  } else {
-    alert("Not in fleet");
+  const vrmInput = document.getElementById('inv_vrm');
+  if (!vrmInput) return;
+
+  const raw = vrmInput.value || '';
+  const v = raw.toUpperCase().replace(/\s/g, '');
+  if (!v) {
+    alert("Enter a VRM first");
+    return;
+  }
+
+  const fleetMatch = DATA.fleet.find(c => (c.vrm || '').toUpperCase().replace(/\s/g, '') === v);
+  if (fleetMatch) {
+    const makeEl = document.getElementById('inv_make');
+    const modelEl = document.getElementById('inv_model');
+    const mileageEl = document.getElementById('inv_mileage');
+
+    if (makeEl) makeEl.value = fleetMatch.make || '';
+    if (modelEl) modelEl.value = fleetMatch.model || '';
+    if (mileageEl) mileageEl.value = fleetMatch.mileage || '';
+  }
+
+  const last = findLastVehicleRecordByVRM(v);
+  if (last) {
+    const cust = document.getElementById('inv_cust');
+    const email = document.getElementById('inv_email');
+    const phone = document.getElementById('inv_phone');
+    const addr = document.getElementById('inv_addr');
+    const makeEl = document.getElementById('inv_make');
+    const modelEl = document.getElementById('inv_model');
+    const mileageEl = document.getElementById('inv_mileage');
+
+    if (cust && !cust.value) cust.value = last.customer || '';
+    if (email && !email.value && last.email) email.value = last.email;
+    if (phone && !phone.value && last.phone) phone.value = last.phone;
+    if (addr && !addr.value && last.address) addr.value = last.address;
+
+    if (makeEl && !makeEl.value && last.make) makeEl.value = last.make;
+    if (modelEl && !modelEl.value && last.model) modelEl.value = last.model;
+    if (mileageEl && !mileageEl.value && last.mileage) mileageEl.value = last.mileage;
+  }
+
+  if (!fleetMatch && !last) {
+    alert("No stored data for this VRM yet");
   }
 };
 
