@@ -657,25 +657,71 @@ window.sellVehicle = (id) => {
 window.handleCSV = (input) => {
   const r = new FileReader();
   r.onload = (e) => {
-    const l = e.target.result.split('\n');
-    let c = 0;
-    l.forEach(x => {
-      const cols = x.split(',');
-      if (cols.length > 2) {
-        const vrm = (cols[2] || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-        if (vrm.length > 2) {
-          saveData('fleet', {
-            make: cols[0],
-            model: cols[1],
-            vrm,
-            mileage: cols[4],
-            price: cols[5]
-          });
-          c++;
+    const raw = e.target.result || '';
+    const lines = raw.split(/\r?\n/).filter(line => line.trim().length > 0);
+    let imported = 0;
+
+    const parseCSVLine = (line) => {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          // toggle quote state unless it's an escaped quote
+          if (inQuotes && line[i + 1] === '"') {
+            current += '"';
+            i++; // skip escaped quote
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (ch === ',' && !inQuotes) {
+          result.push(current.trim());
+          current = '';
+        } else {
+          current += ch;
         }
       }
+      result.push(current.trim());
+      return result;
+    };
+
+    lines.forEach((line, index) => {
+      const cols = parseCSVLine(line);
+
+      // Skip if obviously a header row
+      const headerSample = (cols[0] || '').toLowerCase();
+      if (index === 0 && (headerSample.includes('make') || headerSample.includes('manufacturer'))) {
+        return;
+      }
+
+      if (cols.length < 3) return;
+
+      const make = (cols[0] || '').trim();
+      const model = (cols[1] || '').trim();
+      const vrmRaw = (cols[2] || '').trim();
+      const mileageRaw = (cols[4] || '').trim();
+      const priceRaw = (cols[5] || '').trim();
+
+      const vrm = vrmRaw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (vrm.length < 3) return;
+
+      const mileage = mileageRaw ? parseInt(mileageRaw.replace(/[^0-9]/g, ''), 10) : '';
+      const price = priceRaw ? parseFloat(priceRaw.replace(/[^0-9.]/g, '')) : '';
+
+      saveData('fleet', {
+        make,
+        model,
+        vrm,
+        mileage: isNaN(mileage) ? '' : mileage,
+        price: isNaN(price) ? '' : price
+      });
+      imported++;
     });
-    alert('Imported ' + c);
+
+    alert('Imported ' + imported + ' vehicle(s)');
+    // reset input so the same file can be re-imported if needed
+    if (input && input.value !== undefined) input.value = '';
     nav('fleet');
   };
   r.readAsText(input.files[0]);
