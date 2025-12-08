@@ -41,6 +41,71 @@ const VHC_ITEMS = [
   "Wipers", "Suspension", "Exhaust", "Battery"
 ];
 
+// Predefined invoice templates (service / timing belt etc.)
+// Adjust descriptions, quantities and prices to match your workshop.
+const INVOICE_TEMPLATES = [
+  {
+    id: 'interim_service',
+    label: 'Interim Service',
+    description: 'Oil & filter + basic checks',
+    items: [
+      { desc: 'Engine oil & filter change', qty: 1, price: 0 },
+      { desc: 'Replace engine oil (up to 5L)', qty: 1, price: 0 },
+      { desc: 'Check all fluid levels & top up', qty: 1, price: 0 },
+      { desc: 'Road test & report', qty: 1, price: 0 }
+    ]
+  },
+  {
+    id: 'full_service',
+    label: 'Full / Major Service',
+    description: 'Full service including filters & checks',
+    items: [
+      { desc: 'Engine oil & filter change', qty: 1, price: 0 },
+      { desc: 'Replace air filter', qty: 1, price: 0 },
+      { desc: 'Replace pollen / cabin filter', qty: 1, price: 0 },
+      { desc: 'Spark plug replacement (if applicable)', qty: 1, price: 0 },
+      { desc: 'Inspect brakes, suspension & steering', qty: 1, price: 0 },
+      { desc: 'Check all fluid levels & top up', qty: 1, price: 0 },
+      { desc: 'Road test & service report', qty: 1, price: 0 }
+    ]
+  },
+  {
+    id: 'timing_belt_kit',
+    label: 'Timing Belt Kit & Water Pump',
+    description: 'Cambelt kit & water pump replacement',
+    items: [
+      { desc: 'Supply timing belt kit', qty: 1, price: 0 },
+      { desc: 'Supply water pump (if driven by belt)', qty: 1, price: 0 },
+      { desc: 'Replace timing belt kit & tensioners', qty: 1, price: 0 },
+      { desc: 'Renew coolant / antifreeze', qty: 1, price: 0 },
+      { desc: 'Road test & re-check levels', qty: 1, price: 0 }
+    ]
+  },
+  {
+    id: 'brake_discs_pads_front',
+    label: 'Front discs & pads',
+    description: 'Front brake discs and pads replacement',
+    items: [
+      { desc: 'Supply front brake discs (pair)', qty: 1, price: 0 },
+      { desc: 'Supply front brake pads set', qty: 1, price: 0 },
+      { desc: 'Fit front discs & pads', qty: 1, price: 0 },
+      { desc: 'Road test & brake performance check', qty: 1, price: 0 }
+    ]
+  },
+  {
+    id: 'two_tyres',
+    label: '2x tyres (fitted & balanced)',
+    description: 'Two tyres supplied, fitted & balanced',
+    items: [
+      { desc: 'Supply 2x tyres', qty: 2, price: 0 },
+      { desc: 'Valve & balance 2x wheels', qty: 2, price: 0 },
+      { desc: 'Fit 2x tyres to vehicle', qty: 1, price: 0 },
+      { desc: 'Tyre disposal / environmental charge', qty: 2, price: 0 }
+    ]
+  }
+];
+
+
 // --- 2. STATE ---
 let db = null;
 let offline = true;
@@ -559,9 +624,13 @@ function renderFleetGrid(search = '') {
       <h3 class="font-bold text-lg">${c.make || '-'}</h3>
       <p class="text-slate-400 text-sm">${c.model || ''}</p>
     </div>
-    <span class="bg-yellow-400 text-black font-mono font-bold px-2 py-1 rounded text-sm">
+    <button
+      class="bg-yellow-400 text-black font-mono font-bold px-2 py-1 rounded text-sm hover:bg-yellow-300"
+      onclick="openVehicleHistory('${c.vrm || ''}')"
+      title="View vehicle history"
+    >
       ${c.vrm || ''}
-    </span>
+    </button>
   </div>
   <div class="text-sm text-slate-500 mb-2">
     ${(c.mileage || '0')} miles •
@@ -880,7 +949,13 @@ function renderInvoiceList(search = '') {
   <div>
     <h4 class="font-bold text-white">${inv.customer}</h4>
     <p class="text-xs text-slate-400 mt-1">
-      ${inv.displayId} • ${inv.vrm || inv.details?.vrm || 'NO REG'} • ${inv.date}
+      ${inv.displayId} • <button
+        class="underline-offset-2 hover:underline text-sky-300"
+        onclick="event.stopPropagation(); openVehicleHistory('${inv.vrm || inv.details?.vrm || ''}')"
+        title="View vehicle history"
+      >
+        ${inv.vrm || inv.details?.vrm || 'NO REG'}
+      </button> • ${inv.date}
     </p>
   </div>
   <div class="flex items-center gap-4">
@@ -996,9 +1071,14 @@ function renderCreateInvoice(target) {
     <div class="bg-slate-800 p-6 rounded-xl border border-white/10 lg:col-span-2">
       <div class="flex justify-between mb-4">
         <h3 class="font-bold">ITEMS</h3>
-        <button onclick="addItemRow()" class="text-cyber font-bold hover:text-white transition">
-          + ADD ITEM
-        </button>
+        <div class="flex gap-2">
+          <button onclick="openInvoiceTemplatePicker()" class="text-xs px-3 py-1 rounded bg-slate-700 text-slate-100 hover:bg-slate-600 border border-white/10">
+            Use template
+          </button>
+          <button onclick="addItemRow()" class="text-cyber font-bold hover:text-white transition">
+            + ADD ITEM
+          </button>
+        </div>
       </div>
       <div id="inv_items_list" class="space-y-2"></div>
       <div class="mt-8 flex justify-end gap-4">
@@ -1012,6 +1092,76 @@ function renderCreateInvoice(target) {
 
   renderItems();
 }
+
+
+// Open a picker to apply predefined invoice templates
+window.openInvoiceTemplatePicker = () => {
+  if (!Array.isArray(INVOICE_TEMPLATES) || INVOICE_TEMPLATES.length === 0) {
+    alert('No invoice templates defined.');
+    return;
+  }
+
+  const overlay = document.getElementById('modal-overlay');
+  const modal = document.getElementById('modal-content');
+  if (!overlay || !modal) return;
+
+  overlay.classList.remove('hidden');
+
+  const rows = INVOICE_TEMPLATES.map(t => `
+    <button
+      onclick="applyInvoiceTemplate('${t.id}')"
+      class="w-full text-left p-3 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 flex flex-col gap-1 text-sm mb-2"
+    >
+      <span class="font-bold text-white">${t.label}</span>
+      <span class="text-xs text-slate-300">${t.description || ''}</span>
+      <span class="text-[10px] text-slate-500">${t.items.length} line(s)</span>
+    </button>
+  `).join('');
+
+  modal.innerHTML = `
+    <div class="mb-4 flex justify-between items-center">
+      <h2 class="text-lg font-bold text-white font-tech tracking-wider">INVOICE TEMPLATES</h2>
+      <button onclick="closeModal()" class="text-slate-400 hover:text-white p-2">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <p class="text-xs text-slate-400 mb-3">
+      Choose a template to append its lines to the current invoice. You can still edit or delete any lines afterwards.
+    </p>
+    <div class="max-h-[60vh] overflow-y-auto">
+      ${rows}
+    </div>
+  `;
+
+  if (window.lucide && typeof window.lucide.createIcons === 'function') {
+    window.lucide.createIcons();
+  }
+};
+
+window.applyInvoiceTemplate = (templateId) => {
+  const tpl = Array.isArray(INVOICE_TEMPLATES)
+    ? INVOICE_TEMPLATES.find(t => t.id === templateId)
+    : null;
+  if (!tpl) {
+    alert('Template not found.');
+    return;
+  }
+
+  const now = Date.now();
+  const newItems = (tpl.items || []).map((item, index) => ({
+    id: now + index,
+    desc: item.desc || '',
+    qty: item.qty != null ? item.qty : 1,
+    price: item.price != null ? item.price : 0
+  }));
+
+  if (!Array.isArray(invoiceItems)) {
+    invoiceItems = [];
+  }
+  invoiceItems = invoiceItems.concat(newItems);
+  renderItems();
+  closeModal();
+};
 
 window.startNewInvoice = () => {
   editTarget = null;
@@ -1484,7 +1634,7 @@ function renderVHCList(target) {
     DATA.vhc.map(v => `
     <div class="bg-slate-800 p-4 rounded-xl border border-white/10 flex justify-between items-center hover:border-cyber transition">
       <div>
-        <h4 class="font-bold text-white text-lg">${v.vrm}</h4>
+        <h4 class="font-bold text-white text-lg"><button class="underline-offset-2 hover:underline" onclick="openVehicleHistory('${v.vrm}')" title="View vehicle history">${v.vrm}</button></h4>
         <p class="text-sm text-slate-400">
           ${v.customer} • ${new Date(v.createdAt).toLocaleDateString()}
         </p>
@@ -1709,6 +1859,196 @@ window.openCustomerDetails = (id) => {
 };
 
 // --- GLOBAL UTILS ---
+function normaliseVRM(v) {
+  if (!v) return '';
+  return String(v).toUpperCase().replace(/\s+/g, '').replace(/[^A-Z0-9]/g, '');
+}
+
+// Vehicle history modal: show invoices, bookings, VHC reports and loan history for a VRM
+window.openVehicleHistory = function (vrmRaw) {
+  const vrm = normaliseVRM(vrmRaw);
+  if (!vrm) return;
+
+  const overlay = document.getElementById('modal-overlay');
+  const modal = document.getElementById('modal-content');
+  if (!overlay || !modal) return;
+
+  const safeNorm = (val) => normaliseVRM(val || '');
+
+  const invoices = (DATA.invoices || []).filter(
+    inv => safeNorm(inv.vrm || (inv.details && inv.details.vrm)) === vrm
+  );
+
+  const bookings = (DATA.bookings || []).filter(
+    b => safeNorm(b.vrm) === vrm
+  );
+
+  const vhcReports = (DATA.vhc || []).filter(
+    v => safeNorm(v.vrm) === vrm
+  );
+
+  const fleetMatches = (DATA.fleet || []).filter(
+    f => safeNorm(f.vrm) === vrm
+  );
+
+  // Derive a friendly vehicle label from fleet or invoice data
+  let vehicleLabel = '';
+  if (fleetMatches.length) {
+    const f = fleetMatches[0];
+    vehicleLabel = [f.make, f.model].filter(Boolean).join(' ');
+  } else if (invoices.length) {
+    const i = invoices[0];
+    vehicleLabel = [i.make, i.model].filter(Boolean).join(' ');
+  }
+
+  // Prepare loan history from any matching fleet vehicles
+  let loanHistory = [];
+  fleetMatches.forEach(f => {
+    if (Array.isArray(f.loanHistory)) {
+      f.loanHistory.forEach(entry => {
+        loanHistory.push({
+          ...entry,
+          _fleetId: f.id || null
+        });
+      });
+    }
+  });
+
+  // Sort helpers
+  const safeTime = (d) => (d && !isNaN(d.getTime())) ? d.getTime() : 0;
+
+  const parseInvoiceDate = (inv) => {
+    const d = inv.date;
+    if (typeof d === 'string' && d.includes('/')) {
+      const parts = d.split('/'); // dd/mm/yyyy
+      if (parts.length === 3) {
+        const [dd, mm, yy] = parts;
+        return safeTime(new Date(`${yy}-${mm}-${dd}`));
+      }
+    }
+    return safeTime(new Date(d || inv.createdAt || 0));
+  };
+
+  invoices.sort((a, b) => parseInvoiceDate(b) - parseInvoiceDate(a));
+
+  const parseBookingDate = (b) => {
+    return safeTime(new Date(b.date || b.createdAt || 0));
+  };
+
+  bookings.sort((a, b) => parseBookingDate(b) - parseBookingDate(a));
+
+  const parseVHDate = (v) => safeTime(new Date(v.createdAt || 0));
+  vhcReports.sort((a, b) => parseVHDate(b) - parseVHDate(a));
+
+  const parseLoanStart = (h) => {
+    const base = h.dateOut || '';
+    const t = h.timeOut || '00:00';
+    return safeTime(new Date(`${base}T${t}`));
+  };
+  loanHistory.sort((a, b) => parseLoanStart(b) - parseLoanStart(a));
+
+  const renderInvoices = () => {
+    if (!invoices.length) {
+      return '<p class="text-xs text-slate-500">No invoices found for this vehicle.</p>';
+    }
+    const rows = invoices.slice(0, 20).map(inv => `
+      <button
+        onclick="openPreview('${inv.id}')"
+        class="w-full text-left text-xs px-2 py-1 rounded hover:bg-slate-800 flex justify-between gap-2"
+      >
+        <span>${inv.date || ''} • ${inv.type || 'Invoice'}</span>
+        <span class="font-mono">£${Number(inv.total || 0).toFixed(2)}</span>
+      </button>
+    `).join('');
+    return `<div class="space-y-1 max-h-48 overflow-y-auto mt-1">${rows}</div>`;
+  };
+
+  const renderBookings = () => {
+    if (!bookings.length) {
+      return '<p class="text-xs text-slate-500">No workshop bookings recorded.</p>';
+    }
+    const rows = bookings.slice(0, 20).map(b => `
+      <div class="text-xs px-2 py-1 rounded bg-slate-900/40 flex justify-between gap-2">
+        <span>${b.date || ''} • ${b.status || ''}</span>
+        <span class="truncate">${b.description || ''}</span>
+      </div>
+    `).join('');
+    return `<div class="space-y-1 max-h-48 overflow-y-auto mt-1">${rows}</div>`;
+  };
+
+  const renderVHC = () => {
+    if (!vhcReports.length) {
+      return '<p class="text-xs text-slate-500">No health checks recorded.</p>';
+    }
+    const rows = vhcReports.slice(0, 20).map(v => `
+      <button
+        onclick="openVHCPreview('${v.id}')"
+        class="w-full text-left text-xs px-2 py-1 rounded hover:bg-slate-800 flex justify-between gap-2"
+      >
+        <span>${new Date(v.createdAt).toLocaleDateString()}</span>
+        <span class="truncate">${v.customer || ''}</span>
+      </button>
+    `).join('');
+    return `<div class="space-y-1 max-h-48 overflow-y-auto mt-1">${rows}</div>`;
+  };
+
+  const renderLoans = () => {
+    if (!loanHistory.length) {
+      return '<p class="text-xs text-slate-500">No courtesy car loan history for this VRM.</p>';
+    }
+    const rows = loanHistory.slice(0, 20).map(h => `
+      <div class="text-xs px-2 py-1 rounded bg-slate-900/40 flex flex-col">
+        <div class="flex justify-between gap-2">
+          <span class="truncate">${h.customer || ''}</span>
+          <span class="font-mono">${h.durationLabel || ''}</span>
+        </div>
+        <div class="text-[10px] text-slate-400">
+          ${h.dateOut || ''} ${h.timeOut || ''} → ${h.dateIn || ''} ${h.timeIn || ''}
+        </div>
+      </div>
+    `).join('');
+    return `<div class="space-y-1 max-h-48 overflow-y-auto mt-1">${rows}</div>`;
+  };
+
+  overlay.classList.remove('hidden');
+  modal.innerHTML = `
+    <div class="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
+      <div>
+        <h2 class="text-xl font-bold text-white font-tech tracking-wider">VEHICLE HISTORY</h2>
+        <p class="text-sm text-slate-300 mt-1">
+          <span class="font-mono bg-slate-800 px-2 py-0.5 rounded mr-2">${vrm}</span>
+          ${vehicleLabel || ''}
+        </p>
+      </div>
+      <button onclick="closeModal()" class="text-slate-400 hover:text-white p-2">
+        <i data-lucide="x"></i>
+      </button>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+      <div class="bg-slate-900/60 border border-white/10 rounded-lg p-3">
+        <h3 class="text-[11px] font-bold text-cyber uppercase tracking-wide mb-1">Invoices</h3>
+        ${renderInvoices()}
+      </div>
+      <div class="bg-slate-900/60 border border-white/10 rounded-lg p-3">
+        <h3 class="text-[11px] font-bold text-purple-300 uppercase tracking-wide mb-1">Workshop Bookings</h3>
+        ${renderBookings()}
+      </div>
+      <div class="bg-slate-900/60 border border-white/10 rounded-lg p-3">
+        <h3 class="text-[11px] font-bold text-emerald-300 uppercase tracking-wide mb-1">Health Checks</h3>
+        ${renderVHC()}
+      </div>
+      <div class="bg-slate-900/60 border border-white/10 rounded-lg p-3">
+        <h3 class="text-[11px] font-bold text-amber-300 uppercase tracking-wide mb-1">Courtesy Car Loans</h3>
+        ${renderLoans()}
+      </div>
+    </div>
+  `;
+
+  if (window.lucide && typeof window.lucide.createIcons === 'function') {
+    window.lucide.createIcons();
+  }
+};
+
 function updateClock() {
   const now = new Date();
   const el = document.getElementById('clock');
@@ -1910,7 +2250,9 @@ function renderWorkshopList(container) {
           <div>
             <div class="flex gap-3 items-center">
               <h3 class="font-bold text-white text-lg">
-                ${b.vrm} <span class="text-sm font-normal text-slate-400">(${b.make || ''})</span>
+                <button class="underline-offset-2 hover:underline" onclick="openVehicleHistory('${b.vrm}')" title="View vehicle history">
+                  ${b.vrm}
+                </button> <span class="text-sm font-normal text-slate-400">(${b.make || ''})</span>
               </h3>
               <span class="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${statusStyle}">
                 ${b.status}
@@ -1989,7 +2331,9 @@ function renderWorkshopTimeline(container) {
           <div>
             <div class="flex gap-3 items-center">
               <h3 class="font-bold text-white text-lg">
-                ${b.vrm} <span class="text-sm font-normal text-slate-400">(${b.make || ''})</span>
+                <button class="underline-offset-2 hover:underline" onclick="openVehicleHistory('${b.vrm}')" title="View vehicle history">
+                  ${b.vrm}
+                </button> <span class="text-sm font-normal text-slate-400">(${b.make || ''})</span>
               </h3>
               <span class="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${statusStyle}">
                 ${b.status}
