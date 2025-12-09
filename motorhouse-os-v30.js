@@ -41,71 +41,6 @@ const VHC_ITEMS = [
   "Wipers", "Suspension", "Exhaust", "Battery"
 ];
 
-// Predefined invoice templates (service / timing belt etc.)
-// Adjust descriptions, quantities and prices to match your workshop.
-const INVOICE_TEMPLATES = [
-  {
-    id: 'interim_service',
-    label: 'Interim Service',
-    description: 'Oil & filter + basic checks',
-    items: [
-      { desc: 'Engine oil & filter change', qty: 1, price: 0 },
-      { desc: 'Replace engine oil (up to 5L)', qty: 1, price: 0 },
-      { desc: 'Check all fluid levels & top up', qty: 1, price: 0 },
-      { desc: 'Road test & report', qty: 1, price: 0 }
-    ]
-  },
-  {
-    id: 'full_service',
-    label: 'Full / Major Service',
-    description: 'Full service including filters & checks',
-    items: [
-      { desc: 'Engine oil & filter change', qty: 1, price: 0 },
-      { desc: 'Replace air filter', qty: 1, price: 0 },
-      { desc: 'Replace pollen / cabin filter', qty: 1, price: 0 },
-      { desc: 'Spark plug replacement (if applicable)', qty: 1, price: 0 },
-      { desc: 'Inspect brakes, suspension & steering', qty: 1, price: 0 },
-      { desc: 'Check all fluid levels & top up', qty: 1, price: 0 },
-      { desc: 'Road test & service report', qty: 1, price: 0 }
-    ]
-  },
-  {
-    id: 'timing_belt_kit',
-    label: 'Timing Belt Kit & Water Pump',
-    description: 'Cambelt kit & water pump replacement',
-    items: [
-      { desc: 'Supply timing belt kit', qty: 1, price: 0 },
-      { desc: 'Supply water pump (if driven by belt)', qty: 1, price: 0 },
-      { desc: 'Replace timing belt kit & tensioners', qty: 1, price: 0 },
-      { desc: 'Renew coolant / antifreeze', qty: 1, price: 0 },
-      { desc: 'Road test & re-check levels', qty: 1, price: 0 }
-    ]
-  },
-  {
-    id: 'brake_discs_pads_front',
-    label: 'Front discs & pads',
-    description: 'Front brake discs and pads replacement',
-    items: [
-      { desc: 'Supply front brake discs (pair)', qty: 1, price: 0 },
-      { desc: 'Supply front brake pads set', qty: 1, price: 0 },
-      { desc: 'Fit front discs & pads', qty: 1, price: 0 },
-      { desc: 'Road test & brake performance check', qty: 1, price: 0 }
-    ]
-  },
-  {
-    id: 'two_tyres',
-    label: '2x tyres (fitted & balanced)',
-    description: 'Two tyres supplied, fitted & balanced',
-    items: [
-      { desc: 'Supply 2x tyres', qty: 2, price: 0 },
-      { desc: 'Valve & balance 2x wheels', qty: 2, price: 0 },
-      { desc: 'Fit 2x tyres to vehicle', qty: 1, price: 0 },
-      { desc: 'Tyre disposal / environmental charge', qty: 2, price: 0 }
-    ]
-  }
-];
-
-
 // --- 2. STATE ---
 let db = null;
 let offline = true;
@@ -624,13 +559,9 @@ function renderFleetGrid(search = '') {
       <h3 class="font-bold text-lg">${c.make || '-'}</h3>
       <p class="text-slate-400 text-sm">${c.model || ''}</p>
     </div>
-    <button
-      class="bg-yellow-400 text-black font-mono font-bold px-2 py-1 rounded text-sm hover:bg-yellow-300"
-      onclick="openVehicleHistory('${c.vrm || ''}')"
-      title="View vehicle history"
-    >
+    <span class="bg-yellow-400 text-black font-mono font-bold px-2 py-1 rounded text-sm">
       ${c.vrm || ''}
-    </button>
+    </span>
   </div>
   <div class="text-sm text-slate-500 mb-2">
     ${(c.mileage || '0')} miles •
@@ -726,71 +657,25 @@ window.sellVehicle = (id) => {
 window.handleCSV = (input) => {
   const r = new FileReader();
   r.onload = (e) => {
-    const raw = e.target.result || '';
-    const lines = raw.split(/\r?\n/).filter(line => line.trim().length > 0);
-    let imported = 0;
-
-    const parseCSVLine = (line) => {
-      const result = [];
-      let current = '';
-      let inQuotes = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') {
-          // toggle quote state unless it's an escaped quote
-          if (inQuotes && line[i + 1] === '"') {
-            current += '"';
-            i++; // skip escaped quote
-          } else {
-            inQuotes = !inQuotes;
-          }
-        } else if (ch === ',' && !inQuotes) {
-          result.push(current.trim());
-          current = '';
-        } else {
-          current += ch;
+    const l = e.target.result.split('\n');
+    let c = 0;
+    l.forEach(x => {
+      const cols = x.split(',');
+      if (cols.length > 2) {
+        const vrm = (cols[2] || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (vrm.length > 2) {
+          saveData('fleet', {
+            make: cols[0],
+            model: cols[1],
+            vrm,
+            mileage: cols[4],
+            price: cols[5]
+          });
+          c++;
         }
       }
-      result.push(current.trim());
-      return result;
-    };
-
-    lines.forEach((line, index) => {
-      const cols = parseCSVLine(line);
-
-      // Skip if obviously a header row
-      const headerSample = (cols[0] || '').toLowerCase();
-      if (index === 0 && (headerSample.includes('make') || headerSample.includes('manufacturer'))) {
-        return;
-      }
-
-      if (cols.length < 3) return;
-
-      const make = (cols[0] || '').trim();
-      const model = (cols[1] || '').trim();
-      const vrmRaw = (cols[2] || '').trim();
-      const mileageRaw = (cols[4] || '').trim();
-      const priceRaw = (cols[5] || '').trim();
-
-      const vrm = vrmRaw.toUpperCase().replace(/[^A-Z0-9]/g, '');
-      if (vrm.length < 3) return;
-
-      const mileage = mileageRaw ? parseInt(mileageRaw.replace(/[^0-9]/g, ''), 10) : '';
-      const price = priceRaw ? parseFloat(priceRaw.replace(/[^0-9.]/g, '')) : '';
-
-      saveData('fleet', {
-        make,
-        model,
-        vrm,
-        mileage: isNaN(mileage) ? '' : mileage,
-        price: isNaN(price) ? '' : price
-      });
-      imported++;
     });
-
-    alert('Imported ' + imported + ' vehicle(s)');
-    // reset input so the same file can be re-imported if needed
-    if (input && input.value !== undefined) input.value = '';
+    alert('Imported ' + c);
     nav('fleet');
   };
   r.readAsText(input.files[0]);
@@ -949,13 +834,7 @@ function renderInvoiceList(search = '') {
   <div>
     <h4 class="font-bold text-white">${inv.customer}</h4>
     <p class="text-xs text-slate-400 mt-1">
-      ${inv.displayId} • <button
-        class="underline-offset-2 hover:underline text-sky-300"
-        onclick="event.stopPropagation(); openVehicleHistory('${inv.vrm || inv.details?.vrm || ''}')"
-        title="View vehicle history"
-      >
-        ${inv.vrm || inv.details?.vrm || 'NO REG'}
-      </button> • ${inv.date}
+      ${inv.displayId} • ${inv.vrm || inv.details?.vrm || 'NO REG'} • ${inv.date}
     </p>
   </div>
   <div class="flex items-center gap-4">
@@ -1071,14 +950,9 @@ function renderCreateInvoice(target) {
     <div class="bg-slate-800 p-6 rounded-xl border border-white/10 lg:col-span-2">
       <div class="flex justify-between mb-4">
         <h3 class="font-bold">ITEMS</h3>
-        <div class="flex gap-2">
-          <button onclick="openInvoiceTemplatePicker()" class="text-xs px-3 py-1 rounded bg-slate-700 text-slate-100 hover:bg-slate-600 border border-white/10">
-            Use template
-          </button>
-          <button onclick="addItemRow()" class="text-cyber font-bold hover:text-white transition">
-            + ADD ITEM
-          </button>
-        </div>
+        <button onclick="addItemRow()" class="text-cyber font-bold hover:text-white transition">
+          + ADD ITEM
+        </button>
       </div>
       <div id="inv_items_list" class="space-y-2"></div>
       <div class="mt-8 flex justify-end gap-4">
@@ -1092,76 +966,6 @@ function renderCreateInvoice(target) {
 
   renderItems();
 }
-
-
-// Open a picker to apply predefined invoice templates
-window.openInvoiceTemplatePicker = () => {
-  if (!Array.isArray(INVOICE_TEMPLATES) || INVOICE_TEMPLATES.length === 0) {
-    alert('No invoice templates defined.');
-    return;
-  }
-
-  const overlay = document.getElementById('modal-overlay');
-  const modal = document.getElementById('modal-content');
-  if (!overlay || !modal) return;
-
-  overlay.classList.remove('hidden');
-
-  const rows = INVOICE_TEMPLATES.map(t => `
-    <button
-      onclick="applyInvoiceTemplate('${t.id}')"
-      class="w-full text-left p-3 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 flex flex-col gap-1 text-sm mb-2"
-    >
-      <span class="font-bold text-white">${t.label}</span>
-      <span class="text-xs text-slate-300">${t.description || ''}</span>
-      <span class="text-[10px] text-slate-500">${t.items.length} line(s)</span>
-    </button>
-  `).join('');
-
-  modal.innerHTML = `
-    <div class="mb-4 flex justify-between items-center">
-      <h2 class="text-lg font-bold text-white font-tech tracking-wider">INVOICE TEMPLATES</h2>
-      <button onclick="closeModal()" class="text-slate-400 hover:text-white p-2">
-        <i data-lucide="x"></i>
-      </button>
-    </div>
-    <p class="text-xs text-slate-400 mb-3">
-      Choose a template to append its lines to the current invoice. You can still edit or delete any lines afterwards.
-    </p>
-    <div class="max-h-[60vh] overflow-y-auto">
-      ${rows}
-    </div>
-  `;
-
-  if (window.lucide && typeof window.lucide.createIcons === 'function') {
-    window.lucide.createIcons();
-  }
-};
-
-window.applyInvoiceTemplate = (templateId) => {
-  const tpl = Array.isArray(INVOICE_TEMPLATES)
-    ? INVOICE_TEMPLATES.find(t => t.id === templateId)
-    : null;
-  if (!tpl) {
-    alert('Template not found.');
-    return;
-  }
-
-  const now = Date.now();
-  const newItems = (tpl.items || []).map((item, index) => ({
-    id: now + index,
-    desc: item.desc || '',
-    qty: item.qty != null ? item.qty : 1,
-    price: item.price != null ? item.price : 0
-  }));
-
-  if (!Array.isArray(invoiceItems)) {
-    invoiceItems = [];
-  }
-  invoiceItems = invoiceItems.concat(newItems);
-  renderItems();
-  closeModal();
-};
 
 window.startNewInvoice = () => {
   editTarget = null;
@@ -1634,7 +1438,7 @@ function renderVHCList(target) {
     DATA.vhc.map(v => `
     <div class="bg-slate-800 p-4 rounded-xl border border-white/10 flex justify-between items-center hover:border-cyber transition">
       <div>
-        <h4 class="font-bold text-white text-lg"><button class="underline-offset-2 hover:underline" onclick="openVehicleHistory('${v.vrm}')" title="View vehicle history">${v.vrm}</button></h4>
+        <h4 class="font-bold text-white text-lg">${v.vrm}</h4>
         <p class="text-sm text-slate-400">
           ${v.customer} • ${new Date(v.createdAt).toLocaleDateString()}
         </p>
@@ -1859,196 +1663,6 @@ window.openCustomerDetails = (id) => {
 };
 
 // --- GLOBAL UTILS ---
-function normaliseVRM(v) {
-  if (!v) return '';
-  return String(v).toUpperCase().replace(/\s+/g, '').replace(/[^A-Z0-9]/g, '');
-}
-
-// Vehicle history modal: show invoices, bookings, VHC reports and loan history for a VRM
-window.openVehicleHistory = function (vrmRaw) {
-  const vrm = normaliseVRM(vrmRaw);
-  if (!vrm) return;
-
-  const overlay = document.getElementById('modal-overlay');
-  const modal = document.getElementById('modal-content');
-  if (!overlay || !modal) return;
-
-  const safeNorm = (val) => normaliseVRM(val || '');
-
-  const invoices = (DATA.invoices || []).filter(
-    inv => safeNorm(inv.vrm || (inv.details && inv.details.vrm)) === vrm
-  );
-
-  const bookings = (DATA.bookings || []).filter(
-    b => safeNorm(b.vrm) === vrm
-  );
-
-  const vhcReports = (DATA.vhc || []).filter(
-    v => safeNorm(v.vrm) === vrm
-  );
-
-  const fleetMatches = (DATA.fleet || []).filter(
-    f => safeNorm(f.vrm) === vrm
-  );
-
-  // Derive a friendly vehicle label from fleet or invoice data
-  let vehicleLabel = '';
-  if (fleetMatches.length) {
-    const f = fleetMatches[0];
-    vehicleLabel = [f.make, f.model].filter(Boolean).join(' ');
-  } else if (invoices.length) {
-    const i = invoices[0];
-    vehicleLabel = [i.make, i.model].filter(Boolean).join(' ');
-  }
-
-  // Prepare loan history from any matching fleet vehicles
-  let loanHistory = [];
-  fleetMatches.forEach(f => {
-    if (Array.isArray(f.loanHistory)) {
-      f.loanHistory.forEach(entry => {
-        loanHistory.push({
-          ...entry,
-          _fleetId: f.id || null
-        });
-      });
-    }
-  });
-
-  // Sort helpers
-  const safeTime = (d) => (d && !isNaN(d.getTime())) ? d.getTime() : 0;
-
-  const parseInvoiceDate = (inv) => {
-    const d = inv.date;
-    if (typeof d === 'string' && d.includes('/')) {
-      const parts = d.split('/'); // dd/mm/yyyy
-      if (parts.length === 3) {
-        const [dd, mm, yy] = parts;
-        return safeTime(new Date(`${yy}-${mm}-${dd}`));
-      }
-    }
-    return safeTime(new Date(d || inv.createdAt || 0));
-  };
-
-  invoices.sort((a, b) => parseInvoiceDate(b) - parseInvoiceDate(a));
-
-  const parseBookingDate = (b) => {
-    return safeTime(new Date(b.date || b.createdAt || 0));
-  };
-
-  bookings.sort((a, b) => parseBookingDate(b) - parseBookingDate(a));
-
-  const parseVHDate = (v) => safeTime(new Date(v.createdAt || 0));
-  vhcReports.sort((a, b) => parseVHDate(b) - parseVHDate(a));
-
-  const parseLoanStart = (h) => {
-    const base = h.dateOut || '';
-    const t = h.timeOut || '00:00';
-    return safeTime(new Date(`${base}T${t}`));
-  };
-  loanHistory.sort((a, b) => parseLoanStart(b) - parseLoanStart(a));
-
-  const renderInvoices = () => {
-    if (!invoices.length) {
-      return '<p class="text-xs text-slate-500">No invoices found for this vehicle.</p>';
-    }
-    const rows = invoices.slice(0, 20).map(inv => `
-      <button
-        onclick="openPreview('${inv.id}')"
-        class="w-full text-left text-xs px-2 py-1 rounded hover:bg-slate-800 flex justify-between gap-2"
-      >
-        <span>${inv.date || ''} • ${inv.type || 'Invoice'}</span>
-        <span class="font-mono">£${Number(inv.total || 0).toFixed(2)}</span>
-      </button>
-    `).join('');
-    return `<div class="space-y-1 max-h-48 overflow-y-auto mt-1">${rows}</div>`;
-  };
-
-  const renderBookings = () => {
-    if (!bookings.length) {
-      return '<p class="text-xs text-slate-500">No workshop bookings recorded.</p>';
-    }
-    const rows = bookings.slice(0, 20).map(b => `
-      <div class="text-xs px-2 py-1 rounded bg-slate-900/40 flex justify-between gap-2">
-        <span>${b.date || ''} • ${b.status || ''}</span>
-        <span class="truncate">${b.description || ''}</span>
-      </div>
-    `).join('');
-    return `<div class="space-y-1 max-h-48 overflow-y-auto mt-1">${rows}</div>`;
-  };
-
-  const renderVHC = () => {
-    if (!vhcReports.length) {
-      return '<p class="text-xs text-slate-500">No health checks recorded.</p>';
-    }
-    const rows = vhcReports.slice(0, 20).map(v => `
-      <button
-        onclick="openVHCPreview('${v.id}')"
-        class="w-full text-left text-xs px-2 py-1 rounded hover:bg-slate-800 flex justify-between gap-2"
-      >
-        <span>${new Date(v.createdAt).toLocaleDateString()}</span>
-        <span class="truncate">${v.customer || ''}</span>
-      </button>
-    `).join('');
-    return `<div class="space-y-1 max-h-48 overflow-y-auto mt-1">${rows}</div>`;
-  };
-
-  const renderLoans = () => {
-    if (!loanHistory.length) {
-      return '<p class="text-xs text-slate-500">No courtesy car loan history for this VRM.</p>';
-    }
-    const rows = loanHistory.slice(0, 20).map(h => `
-      <div class="text-xs px-2 py-1 rounded bg-slate-900/40 flex flex-col">
-        <div class="flex justify-between gap-2">
-          <span class="truncate">${h.customer || ''}</span>
-          <span class="font-mono">${h.durationLabel || ''}</span>
-        </div>
-        <div class="text-[10px] text-slate-400">
-          ${h.dateOut || ''} ${h.timeOut || ''} → ${h.dateIn || ''} ${h.timeIn || ''}
-        </div>
-      </div>
-    `).join('');
-    return `<div class="space-y-1 max-h-48 overflow-y-auto mt-1">${rows}</div>`;
-  };
-
-  overlay.classList.remove('hidden');
-  modal.innerHTML = `
-    <div class="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
-      <div>
-        <h2 class="text-xl font-bold text-white font-tech tracking-wider">VEHICLE HISTORY</h2>
-        <p class="text-sm text-slate-300 mt-1">
-          <span class="font-mono bg-slate-800 px-2 py-0.5 rounded mr-2">${vrm}</span>
-          ${vehicleLabel || ''}
-        </p>
-      </div>
-      <button onclick="closeModal()" class="text-slate-400 hover:text-white p-2">
-        <i data-lucide="x"></i>
-      </button>
-    </div>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-      <div class="bg-slate-900/60 border border-white/10 rounded-lg p-3">
-        <h3 class="text-[11px] font-bold text-cyber uppercase tracking-wide mb-1">Invoices</h3>
-        ${renderInvoices()}
-      </div>
-      <div class="bg-slate-900/60 border border-white/10 rounded-lg p-3">
-        <h3 class="text-[11px] font-bold text-purple-300 uppercase tracking-wide mb-1">Workshop Bookings</h3>
-        ${renderBookings()}
-      </div>
-      <div class="bg-slate-900/60 border border-white/10 rounded-lg p-3">
-        <h3 class="text-[11px] font-bold text-emerald-300 uppercase tracking-wide mb-1">Health Checks</h3>
-        ${renderVHC()}
-      </div>
-      <div class="bg-slate-900/60 border border-white/10 rounded-lg p-3">
-        <h3 class="text-[11px] font-bold text-amber-300 uppercase tracking-wide mb-1">Courtesy Car Loans</h3>
-        ${renderLoans()}
-      </div>
-    </div>
-  `;
-
-  if (window.lucide && typeof window.lucide.createIcons === 'function') {
-    window.lucide.createIcons();
-  }
-};
-
 function updateClock() {
   const now = new Date();
   const el = document.getElementById('clock');
@@ -2250,9 +1864,7 @@ function renderWorkshopList(container) {
           <div>
             <div class="flex gap-3 items-center">
               <h3 class="font-bold text-white text-lg">
-                <button class="underline-offset-2 hover:underline" onclick="openVehicleHistory('${b.vrm}')" title="View vehicle history">
-                  ${b.vrm}
-                </button> <span class="text-sm font-normal text-slate-400">(${b.make || ''})</span>
+                ${b.vrm} <span class="text-sm font-normal text-slate-400">(${b.make || ''})</span>
               </h3>
               <span class="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${statusStyle}">
                 ${b.status}
@@ -2331,9 +1943,7 @@ function renderWorkshopTimeline(container) {
           <div>
             <div class="flex gap-3 items-center">
               <h3 class="font-bold text-white text-lg">
-                <button class="underline-offset-2 hover:underline" onclick="openVehicleHistory('${b.vrm}')" title="View vehicle history">
-                  ${b.vrm}
-                </button> <span class="text-sm font-normal text-slate-400">(${b.make || ''})</span>
+                ${b.vrm} <span class="text-sm font-normal text-slate-400">(${b.make || ''})</span>
               </h3>
               <span class="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${statusStyle}">
                 ${b.status}
@@ -2463,234 +2073,3 @@ function renderCharts() {
 }
 
 /* ------------------------------------------------------------------ */
-// --- Fleet enhancements: loan history + workshop booking ---
-//
-// This block fixes DATA access (no window.DATA), keeps CSV import working,
-// records loan history with duration on return, and lets you book fleet
-// vehicles straight into the workshop.
-
-// Override returnCar to record loan history with duration
-window.returnCar = function (id) {
-  if (!confirm("Confirm vehicle return?")) return;
-
-  const car = DATA.fleet.find(c => c.id === id);
-  if (!car) return;
-
-  const now = new Date();
-
-  let historyEntry = null;
-  if (car.loanDetails && car.loanDetails.dateOut && car.loanDetails.timeOut) {
-    // Build a Date from stored strings
-    const start = new Date(`${car.loanDetails.dateOut}T${car.loanDetails.timeOut}`);
-    const diffMs = now.getTime() - start.getTime();
-    const diffMinutes = Math.max(0, Math.round(diffMs / 60000));
-
-    const days = Math.floor(diffMinutes / (60 * 24));
-    const hours = Math.floor((diffMinutes % (60 * 24)) / 60);
-    const minutes = diffMinutes % 60;
-
-    const durationParts = [];
-    if (days) durationParts.push(`${days} day${days !== 1 ? "s" : ""}`);
-    if (hours) durationParts.push(`${hours} hr${hours !== 1 ? "s" : ""}`);
-    if (minutes || (!days && !hours)) {
-      durationParts.push(`${minutes} min${minutes !== 1 ? "s" : ""}`);
-    }
-
-    historyEntry = {
-      customer: car.loanDetails.customer || "",
-      dateOut: car.loanDetails.dateOut,
-      timeOut: car.loanDetails.timeOut,
-      dateIn: now.toISOString().slice(0, 10),
-      timeIn: now.toTimeString().slice(0, 5),
-      durationMinutes: diffMinutes,
-      durationLabel: durationParts.join(" ")
-    };
-  }
-
-  const loanHistory = Array.isArray(car.loanHistory) ? car.loanHistory.slice() : [];
-  if (historyEntry) {
-    loanHistory.unshift(historyEntry);
-  }
-
-  const updatedCar = {
-    ...car,
-    status: "Available",
-    loanDetails: null,
-    loanHistory,
-    updatedAt: new Date().toISOString()
-  };
-
-  saveData("fleet", updatedCar);
-};
-
-// Helper: format the last loan line for display
-function formatLastLoanLine(car) {
-  if (!Array.isArray(car.loanHistory) || car.loanHistory.length === 0) return "";
-  const last = car.loanHistory[0];
-  if (!last.dateIn || !last.timeIn) return "";
-
-  const label = last.durationLabel || "";
-  const returnedOn = `${last.dateIn} ${last.timeIn}`;
-  return `Returned ${returnedOn}${label ? " • " + label : ""}`;
-}
-
-// Override renderFleetGrid to show last loan info and add a booking button
-function renderFleetGrid(search = "") {
-  const list = document.getElementById("fleet-list");
-  if (!list) return;
-
-  const term = (search || "").toLowerCase();
-
-  const items = DATA.fleet.filter(c =>
-    (c.make + " " + (c.model || "")).toLowerCase().includes(term) ||
-    (c.vrm || "").includes((search || "").toUpperCase())
-  );
-
-  list.innerHTML = items.map(c => {
-    const isOnLoan = c.status === "On Loan";
-
-    const statusBadge = isOnLoan
-      ? `<div class="bg-red-500/10 text-red-400 border border-red-500/20 p-2 rounded text-xs text-center font-bold mb-2">
-           ON LOAN${c.loanDetails && c.loanDetails.customer ? ": " + c.loanDetails.customer : ""}
-         </div>`
-      : `<div class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 p-2 rounded text-xs text-center font-bold mb-2">
-           AVAILABLE
-         </div>`;
-
-    const lastLoanLine = formatLastLoanLine(c);
-    const lastLoanHtml = lastLoanLine
-      ? `<div class="text-[11px] text-slate-400 mb-2 italic">
-           ${lastLoanLine}
-         </div>`
-      : "";
-
-    return `
-      <div class="bg-slate-800 border border-white/10 p-5 rounded-xl hover:border-cyber transition relative group">
-        <div class="flex justify-between items-start mb-2">
-          <div>
-            <h3 class="font-bold text-lg">${c.make || "-"}</h3>
-            <p class="text-slate-400 text-sm">${c.model || ""}</p>
-          </div>
-          <span class="bg-yellow-400 text-black font-mono font-bold px-2 py-1 rounded text-sm">
-            ${c.vrm || ""}
-          </span>
-        </div>
-        <div class="text-sm text-slate-500 mb-2">
-          ${(c.mileage || "0")} miles •
-          <span class="text-cyber font-bold">£${c.price || "0"}</span>
-        </div>
-        ${statusBadge}
-        ${lastLoanHtml}
-        <div class="flex gap-2 justify-end mt-2">
-          ${
-            isOnLoan
-              ? `<button onclick="returnCar('${c.id}')" class="btn btn-warning text-xs">RETURN</button>`
-              : `<button onclick="openLoanModal('${c.id}')" class="btn btn-secondary text-xs">LOAN</button>`
-          }
-          <button onclick="bookFleetVehicle('${c.id}')" class="p-2 bg-purple-500/20 text-purple-400 rounded" title="Book into workshop">
-            <i data-lucide="calendar-plus" width="16"></i>
-          </button>
-          <button onclick="sellVehicle('${c.id}')" class="p-2 bg-emerald-500/20 text-emerald-400 rounded" title="Invoice">
-            <i data-lucide="file-text" width="16"></i>
-          </button>
-          <button onclick="openVehicleModal('${c.id}')" class="p-2 bg-blue-500/20 text-blue-400 rounded">
-            <i data-lucide="pencil" width="16"></i>
-          </button>
-          <button onclick="deleteData('fleet','${c.id}')" class="p-2 bg-red-500/20 text-red-400 rounded">
-            <i data-lucide="trash-2" width="16"></i>
-          </button>
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  if (window.lucide && typeof window.lucide.createIcons === "function") {
-    window.lucide.createIcons();
-  }
-}
-
-// Helper to book a fleet vehicle into the workshop
-window.bookFleetVehicle = function (id) {
-  const car = DATA.fleet.find(c => c.id === id);
-  if (!car) return;
-
-  const today = new Date().toISOString().split("T")[0];
-
-  window.bookingPrefill = {
-    fleetId: car.id,
-    vrm: car.vrm || "",
-    customer: car.loanDetails && car.loanDetails.customer ? car.loanDetails.customer : "",
-    description: `Workshop booking for fleet vehicle ${car.vrm || ""}`,
-    date: today
-  };
-
-  window.openBookingModal(null, window.bookingPrefill);
-};
-
-// Override openBookingModal to support optional prefill (including fleet bookings)
-window.openBookingModal = (id = null, prefill = null) => {
-  editingBookingId = id || null;
-
-  const existing = id
-    ? DATA.bookings.find(b => b.id === id)
-    : null;
-
-  const usedPrefill = prefill || window.bookingPrefill || null;
-
-  const baseDate =
-    (existing && existing.date) ||
-    (existing && existing.createdAt ? existing.createdAt.split("T")[0] : null) ||
-    (usedPrefill && usedPrefill.date) ||
-    new Date().toISOString().split("T")[0];
-
-  document.getElementById("modal-overlay").classList.remove("hidden");
-  document.getElementById("modal-content").innerHTML = `
-    <h2 class="text-white font-bold mb-4">${id ? "EDIT BOOKING" : "BOOK IN"}</h2>
-    <input id="b_vrm" placeholder="VRM" class="mb-2 uppercase"
-      value="${(existing && existing.vrm) || (usedPrefill && usedPrefill.vrm) || ""}">
-    <input id="b_cust" placeholder="Customer" class="mb-2"
-      value="${(existing && existing.customer) || (usedPrefill && usedPrefill.customer) || ""}">
-    <input id="b_desc" placeholder="Work description" class="mb-2"
-      value="${(existing && existing.description) || (usedPrefill && usedPrefill.description) || ""}">
-    <input id="b_date" type="date" class="mb-2"
-      value="${baseDate}">
-    <button onclick="saveBook()" class="btn btn-primary w-full">SAVE</button>
-  `;
-};
-
-// Override saveBook to consume bookingPrefill and keep state in sync
-window.saveBook = () => {
-  const existing = editingBookingId
-    ? DATA.bookings.find(b => b.id === editingBookingId)
-    : null;
-
-  const dateValue =
-    document.getElementById("b_date").value ||
-    new Date().toISOString().split("T")[0];
-
-  const payload = {
-    id: existing && existing.id,
-    vrm: document.getElementById("b_vrm").value.toUpperCase(),
-    customer: document.getElementById("b_cust").value,
-    description:
-      document.getElementById("b_desc").value ||
-      (existing && existing.description) ||
-      "",
-    date: dateValue,
-    status: (existing && existing.status) || "Booked",
-    createdAt: (existing && existing.createdAt) || new Date().toISOString(),
-    fleetId:
-      (existing && existing.fleetId) ||
-      (window.bookingPrefill && window.bookingPrefill.fleetId) ||
-      null
-  };
-
-  saveData("bookings", payload);
-
-  if (window.bookingPrefill) {
-    window.bookingPrefill = null;
-  }
-
-  editingBookingId = null;
-  window.closeModal();
-};
